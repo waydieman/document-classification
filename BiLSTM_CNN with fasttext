@@ -1,0 +1,306 @@
+from __future__ import print_function
+import os
+import numpy as np
+np.random.seed(1337)
+ 
+from keras.preprocessing.text import Tokenizer
+from keras.preprocessing.sequence import pad_sequences
+from keras.utils.np_utils import to_categorical
+from keras.layers import Dense, Input, Flatten
+from keras.layers import Conv1D, MaxPooling1D, Embedding
+from keras.models import Model
+from keras.optimizers import *
+from keras.models import Sequential
+from keras.layers import Merge
+from keras.layers import LSTM, Bidirectional
+from keras.layers import Activation,Dropout
+import sys
+
+# 使用第1張 GPU 卡
+os.environ["CUDA_VISIBLE_DEVICES"] = "1"
+
+import tensorflow as tf
+
+# 自動增長 GPU 記憶體用量
+gpu_options = tf.GPUOptions(allow_growth=True)
+sess = tf.Session(config=tf.ConfigProto(gpu_options=gpu_options))
+
+# 設定 Keras 使用的 Session
+tf.keras.backend.set_session(sess)
+
+# 這裡是指目前的目錄
+BASE_DIR = '.' 
+# glove.6B目錄
+GLOVE_DIR = BASE_DIR + '/glove.6B/' 
+# 20_newsgroup目錄
+TEXT_DATA_DIR = BASE_DIR + '/20_newsgroup/' 
+# 每個文本的最長選取長度，較短的文本可以設短些
+MAX_SEQUENCE_LENGTH = 1000 
+# 整體詞庫字典中，詞的多少，可以略微調大或調小
+MAX_NUM_WORDS = 20000
+# 詞向量的維度，可以根據實際情況使用 
+EMBEDDING_DIM = 300 
+# 這裡用作是測試集的比例，但單詞本身的意思是驗證集 
+VALIDATION_SPLIT = 0.4
+ 
+# first, build index mapping words in the embeddings set
+# to their embedding vector 
+#這段話是指建立一個詞到詞向量之間的索引，比如 Sandberger對應詞向量 [ 0.28365   -0.6263  -0.087421  -0.1706.. 0.032651   0.43678   -0.82607   -0.15701  ]等等。
+ 
+print('Indexing word vectors.')
+embeddings_index = {}
+
+# 讀入100維的詞向量檔(預先訓練好的詞向量,後面在用查表方式建立詞向量矩陣)，可以改成100維或者其他
+f = open(os.path.join(BASE_DIR, 'wiki-news-300d-1M.vec')) 
+for line in f:
+    values = line.split()
+    word = values[0]
+    coefs = np.asarray(values[1:], dtype='float32')
+    
+    embeddings_index[word] = coefs
+#    word, coefs = line.split(maxsplit=1)
+#    coefs = np.fromstring(coefs, 'f', sep=' ')
+#    embeddings_index[word] = coefs
+   
+f.close()
+ 
+print('Found %s word vectors.' % len(embeddings_index))
+print('embeddings_word:',word)
+print('embeddings_vector:',coefs)
+
+# second, prepare text samples and their labels
+# 下面這段代碼，主要作用是讀入訓練樣本，並讀入相應的標籤
+print('Processing text dataset') 
+# 存儲訓練文本的list 
+texts = [] 
+# 類別編號:如'alt.atheism': 0
+labels_index = {} 
+# 存儲訓練樣本，類別編號的文本，比如文章a屬於第1類文本
+labels = [] 
+for name in sorted(os.listdir(TEXT_DATA_DIR)):
+    path = os.path.join(TEXT_DATA_DIR, name)
+    print('path_name:',path)
+    if os.path.isdir(path):
+        label_id = len(labels_index)
+        labels_index[name] = label_id
+        for fname in sorted(os.listdir(path)):
+            if fname.isdigit():
+                fpath = os.path.join(path, fname)
+                #print('file_path_name:',fpath)
+                if sys.version_info < (3,):
+                    f = open(fpath)
+                else:
+                    f = open(fpath, encoding='latin-1')
+                texts.append(f.read())
+                f.close()
+                labels.append(label_id)
+# 輸出訓練樣本的數量
+print('Found %s texts.' % len(texts)) 
+#文本檔案路徑及編號和內容 
+print('texts_path_names:',fpath)
+print('texts[19996]:',texts[19996])
+#列印類別和類別index
+#print('labels_index:',labels_index)
+# 列印訓練樣本，類別編號的文本，比如文章a屬於第1類文本
+#print('labels:',labels)
+
+# finally, vectorize the text samples into a 2D integer tensor,
+#下面這段代碼主要是將文本轉換成文本序列，
+#比如 文本轉化為sequences: [169, 29, 24, 16, 12, 2, 127,,.......],最後將這些編號展開成詞向量
+
+tokenizer = Tokenizer(num_words=MAX_NUM_WORDS)
+tokenizer.fit_on_texts(texts)
+sequences = tokenizer.texts_to_sequences(texts)
+print('tokenizer:',tokenizer.fit_on_texts(texts))
+print('sequences:',sequences[0])
+print('sequences[0].length:',len(sequences[0]))
+
+word_index = tokenizer.word_index
+#print("A dictionary of words and their counts:",tokenizer.word_counts)
+#print("A dictionary of words and their uniquely assigned integers:",tokenizer.word_index)
+#print("A dictionary of words and how many documents each appeared in:",tokenizer.word_docs)
+#print("A dictionary of words and how many documents each appeared in.length:",len(tokenizer.word_docs))
+print('Found %s unique tokens.' % len(word_index))
+#填充sequence 維度:MAX_SEQUENCE_LENGTH ex:data[0]: [  489   755    76   696  2361  ... 277     5   240  1898]
+data = pad_sequences(sequences, maxlen=MAX_SEQUENCE_LENGTH)
+#print('data[10374]:',data[10374])
+#將文本所屬類別轉成矩陣ex:labels[0]: [1. 0. 0. 0. 0. 0. 0. 0. 0. 0. 0. 0. 0. 0. 0. 0. 0. 0. 0. 0.]
+labels = to_categorical(np.asarray(labels))
+print('labels[0]:',labels[0])
+print('Shape of data tensor:', data.shape)
+print('Shape of label tensor:', labels.shape)
+print('pad_sequences.data[10374]:',data[10374])
+
+# split the data into a training set and a validation set,
+#下面這段代碼，主要是將資料集分為，訓練集和測試集（英文原意是驗證集）
+#文本編號:0-19996
+indices = np.arange(data.shape[0])
+print('indices:',indices)
+#隨機indices
+np.random.shuffle(indices)
+print('indices_random:',indices)
+#隨機indices,文本[indices]:ex:indices=10374,data[10374],10374號文本所成之向量
+data = data[indices]
+print('old_data[10374]=data[0]:',data[0])
+#隨機indices,labels[indices]:ex:indices=10374,labels[10374],10374號文本所屬類別標籤
+labels = labels[indices]
+print('old_labels[10374]=labels[0]:',labels[0])
+#測試集個數
+num_validation_samples = int(VALIDATION_SPLIT * data.shape[0])
+print('num_validation_samples:',num_validation_samples)
+# 訓練集 
+x_train = data[:-num_validation_samples] 
+# 訓練集的標籤
+y_train = labels[:-num_validation_samples]
+# 測試集，英文原意是驗證集
+x_val = data[-num_validation_samples:] 
+# 測試集的標籤
+y_val = labels[-num_validation_samples:] 
+
+print('x_train.shape:',x_train.shape)
+print('y_train.shape:',y_train.shape)
+print('x_train:',x_train)
+print('y_train:',y_train)
+print('x_train[0]:',x_train[0])
+print('y_train[0]:',y_train[0])
+print('x_val[0]:',x_val[0])
+print('y_val[0]:',y_val[0])
+
+print('x_val.shape:',x_val.shape)
+print('y_val.shape:',y_val.shape)
+
+print('Preparing embedding matrix.')
+
+# prepare embedding matrix 這部分主要是創建一個詞向量矩陣，使每個詞都有其對應的詞向量相對應
+num_words = min(MAX_NUM_WORDS, len(word_index))
+embedding_matrix = np.zeros((num_words + 1, EMBEDDING_DIM))
+print('embedding_matrix_initial:',embedding_matrix)
+#利用查表方式建立:詞向量矩陣
+print('word_index.items()',len(word_index.items()))
+for word, i in word_index.items():
+    if i > MAX_NUM_WORDS:
+        continue
+    embedding_vector = embeddings_index.get(word)
+    if embedding_vector is not None:
+        # words not found in embedding index will be all-zeros.
+        embedding_matrix[i] = embedding_vector # word_index to word_embedding_vector ,<20000(nb_words)
+
+print('num_words:',num_words)        
+print('embedding_matrix:',embedding_matrix)
+print('embedding_matrix.shape:',embedding_matrix.shape)
+# load pre-trained word embeddings into an Embedding layer
+# 神經網路的第一層，詞向量層，本文使用了預訓練glove詞向量，可以把trainable那裡設為False
+#將詞向量矩陣載入 Keras Embedding 層，設置該層的權重不可再訓練（也就是說在之後的網路訓練過程中，詞向量不再改變）
+embedding_layer = Embedding(num_words + 1,
+                            EMBEDDING_DIM,
+                            input_length=MAX_SEQUENCE_LENGTH,
+                            weights=[embedding_matrix],
+                            trainable=False)
+print('embedding_layer:',embedding_layer) 
+print('Training model.')
+# train a 1D convnet with global maxpoolinnb_wordsg
+# Keras Embedding 層之後連接一個 1D 的卷積層，並用一個 softmax 全連接輸出新聞類別
+#input
+sequence_input = Input(shape=(MAX_SEQUENCE_LENGTH,), dtype='int32')
+embedded_sequences = embedding_layer(sequence_input)
+print('embedded_sequences.shape:',embedded_sequences.shape)
+
+#bidirectional lstm layer
+x=Bidirectional(LSTM(128,dropout=0.3,recurrent_dropout=0.3,return_sequences=True))(embedded_sequences)
+print('x:',x)
+#convoution layer
+x = Conv1D(128, 5, activation='relu')(x)
+#polling layer
+x = MaxPooling1D(5)(x)
+#convoution layer
+x = Conv1D(128, 5, activation='relu')(x)
+#polling layer
+x = MaxPooling1D(5)(x)
+#convoution layer
+x = Conv1D(128, 5, activation='relu')(x)
+#polling layer
+x = MaxPooling1D(35)(x)
+x=Dropout(0.4)(x)
+x = Flatten()(x)
+
+#x=LSTM(128,dropout=0.2,recurrent_dropout=0.2,return_sequences=True)(x)
+#x=LSTM(128,)(x)
+#fully connected layer
+x = Dense(128, activation='relu')(x)
+#fully connected layer
+preds = Dense(len(labels_index), activation='softmax')(x)
+
+
+#sgd = SGD(lr=0.5, decay=1e-6, momentum=0.9, nesterov=True) 
+model = Model(sequence_input, preds)
+model.summary()
+model.compile(loss='categorical_crossentropy',
+              optimizer='rmsprop',
+              metrics=['accuracy'])
+
+
+#model.fit(x_train, y_train, validation_data=(x_val, y_val),
+#          epochs=2, batch_size=128)
+history=model.fit(x_train, y_train,epochs=5,batch_size=100,validation_split=0.1)
+
+score = model.evaluate(x_train, y_train, verbose=0) 
+print('train score:', score[0])
+print('train accuracy:', score[1])
+score = model.evaluate(x_val, y_val, verbose=0) 
+print('Test score:', score[0])
+print('Test accuracy:', score[1])
+
+prediction = model.predict(np.array([x_val[0]]))
+print("prediction:",prediction[0])
+y_pred = model.predict(x_val)
+predicted_label_index=np.argmax(y_pred, axis=1)
+
+#print predicted_label_index
+print("y_pred:",y_pred.shape)
+print("predicted_label_index:",predicted_label_index)
+
+y_test_label_index=np.argmax(y_val, axis=1)
+#print y_test_label_index
+print("y_test_label_index:",y_test_label_index)
+
+for i in range(2):
+ prediction = model.predict(np.array([x_val[i]]))
+ y_pred = model.predict(x_val)
+ predicted_label_index=np.argmax(y_pred, axis=1)
+ 
+ print('Actual label:' , y_test_label_index[i])
+ print('Predicted label: ' , predicted_label_index[i])
+ print('--------------------------')
+
+
+
+# summarize history for accuracy
+import matplotlib.pyplot as plt
+#plt.figure()
+#plt.subplot(221)
+plt.plot(history.history['acc'])
+plt.plot(history.history['val_acc'])
+plt.title('Accuracy on Training and Validation Data')
+plt.ylabel('accuracy')
+plt.xlabel('epoch')
+plt.legend(['train_acc', 'val_acc'], loc='lower right') 
+plt.show()
+# summarize history for loss plt.plot(history.history['loss']) plt.plot(history.history['val_loss']) plt.title('model loss')
+print('****************************************')
+#plt.subplot(212) 
+plt.plot(history.history['loss'])  
+plt.plot(history.history['val_loss']) 
+plt.title('Loss on Training and Validation Data')
+plt.ylabel('loss')
+plt.xlabel('epoch')
+plt.legend(['train_loss', 'val_loss'], loc='upper left') 
+plt.show()
+
+#使用pandas 列印confusion matrix
+print("使用pandas 列印confusion matrix")
+print("alt.atheism=0,  comp.graphics=1,  comp.os.ms-windows.misc=2,  comp.sys.ibm.pc.hardware=3,  comp.sys.mac.hardware=4,  comp.windows.x=5,  misc.forsale=6,  rec.autos=7,  rec.motorcycles=8,  rec.sport.baseball=9,  rec.sport.hockey=10,  sci.crypt=11,  sci.electronics=12,  sci.med=13,  sci.space=14,  soc.religion.christian=15,  talk.politics.guns=16,  talk.politics.mideast=17,  talk.politics.misc=18,  talk.religion.misc=19")
+import pandas as pd
+y_actu_1 = pd.Series(y_test_label_index, name='Actual')
+y_pred_1 = pd.Series(predicted_label_index, name='Predicted')
+df_confusion = pd.crosstab(y_actu_1, y_pred_1)
+print(df_confusion)
