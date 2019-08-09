@@ -1,0 +1,213 @@
+import os
+# 使用第1張 GPU 卡
+os.environ["CUDA_VISIBLE_DEVICES"] = "1"
+import tensorflow as tf
+
+# 自動增長 GPU 記憶體用量
+gpu_options = tf.GPUOptions(allow_growth=True)
+sess = tf.Session(config=tf.ConfigProto(gpu_options=gpu_options))
+
+# 設定 Keras 使用的 Session
+tf.keras.backend.set_session(sess)
+
+#Importing Required Packages
+import pandas as pd
+import numpy as np
+import pickle
+from keras.preprocessing.text import Tokenizer
+from keras.models import Sequential
+from keras.layers import Activation, Dense, Dropout
+from sklearn.preprocessing import LabelBinarizer
+import sklearn.datasets as skds
+from pathlib import Path
+import matplotlib.pyplot as plt
+#Loading data from files to Python variables
+# For reproducibility
+np.random.seed(1237)
+ 
+# Source file directory
+#path_train = "20news-bydate/20news-bydate-train"
+path_train = "20_newsgroup" 
+files_train = skds.load_files(path_train,load_content=False)
+ 
+label_index = files_train.target
+label_names = files_train.target_names
+labelled_files = files_train.filenames
+data_tags = ["filename","category","category_index","news"]
+data_list = []
+print("=======================================")
+print("label_index:",label_index)
+print("label_index.shape:",label_index.shape)
+print("label_names:",label_names)
+print("label_names[19]:",label_names[19])
+print("files_train_filenames:",labelled_files)
+print("files_train_filenames[50]:",labelled_files[50])
+print("=======================================")
+# Read and add data from file to a list
+i=0
+for f in labelled_files:
+ data_list.append((f,label_names[label_index[i]],label_index[i],Path(f).read_text(encoding="utf8", errors='ignore')))
+ i+=1
+ 
+# We have training data available as dictionary filename, category, data
+data = pd.DataFrame.from_records(data_list, columns=data_tags)
+print("data_dataframe:",data)
+
+#Split Data for Train and Test
+# lets take 80% data as training and remaining 20% for test.
+train_size = int(len(data) * .6)
+ 
+train_posts = data['news'][:train_size]
+train_tags = data['category'][:train_size]
+train_files_names = data['filename'][:train_size]
+
+test_posts = data['news'][train_size:]
+test_tags = data['category'][train_size:]
+test_tags_index= data['category_index'][train_size:]
+test_files_names = data['filename'][train_size:]
+print("=======================================")
+print("train_posts.shape:",len(train_posts)) 
+print("test_posts.shape:",len(test_posts))
+print("=======================================")
+print("train_posts_head(5):",train_posts.head())
+print("train_tags_head(5):",train_tags.head())
+print("train_files_names_head(5):",train_files_names.head())
+print("test_tags_index:",test_tags_index)
+print("test_tags_index.shape:",test_tags_index.shape)
+print("test_tags_index:",data.iloc[train_size:,2])
+#Tokenize and Prepare Vocabulary
+# 20 news groups
+num_labels = 20
+vocab_size = 20000
+batch_size = 100
+ 
+# define Tokenizer with Vocab Size
+# create the tokenizer
+tokenizer = Tokenizer(num_words=vocab_size)
+# fit the tokenizer on the documents
+tokenizer.fit_on_texts(train_posts)
+print("=======================================")
+#print("A dictionary of words and their counts:",tokenizer.word_counts)
+#print("An integer count of the total number of documents :",tokenizer.document_count)
+#print("A dictionary of words and their uniquely assigned integers:",tokenizer.word_index)
+#print("A dictionary of words and how many documents each appeared in:",tokenizer.word_docs)
+
+ 
+x_train = tokenizer.texts_to_matrix(train_posts, mode='tfidf')
+x_test = tokenizer.texts_to_matrix(test_posts, mode='tfidf')
+x_train_word_count = tokenizer.texts_to_matrix(train_posts, mode='count')
+print("=======================================")
+print("x_train_matrix:",x_train)
+print("x_train_matrix_shape:",x_train.shape)
+print("x_test_matrix:",x_test)
+print("x_test_matrix_shape:",x_test.shape)
+print("x_train_word_count_document:",x_train_word_count)
+print("x_train_word_count_document.shape:",x_train_word_count.shape)
+print("=======================================")
+encoder = LabelBinarizer()
+encoder.fit(train_tags)
+y_train = encoder.transform(train_tags)
+y_test = encoder.transform(test_tags)
+print("=======================================")
+print("y_train_vector",y_train)
+print("y_train_vector.shape",y_train.shape)
+print("y_test_vector",y_test)
+print("y_test_vector.shape",y_test.shape)
+print("=======================================")
+#Build Keras Model and Fit
+# create model
+model = Sequential()
+#input & hidden layer 1
+model.add(Dense(512, input_shape=(vocab_size,)))
+model.add(Activation('relu'))
+model.add(Dropout(0.3))
+#hidden layer 2
+model.add(Dense(512))
+model.add(Activation('relu'))
+model.add(Dropout(0.3))
+#output layer 3 
+model.add(Dense(num_labels))
+model.add(Activation('softmax'))
+model.summary()
+# Compile model 
+model.compile(loss='categorical_crossentropy',
+              optimizer='adam',
+              metrics=['accuracy'])
+# Fit the model 
+history = model.fit(x_train, y_train,batch_size=batch_size,epochs=5,verbose=1,validation_split=0.1)
+#history = model.fit(x_train, y_train,epochs=30,verbose=1,validation_data=(x_test, y_test))
+# list all data in history
+print("history:",history.history.keys())
+print("=======================================")
+#evaluate the model
+score = model.evaluate(x_train, y_train, verbose=0) 
+print('train score:', score[0])
+print('train accuracy:', score[1])
+
+score = model.evaluate(x_test, y_test,batch_size=batch_size, verbose=0)
+print('Test score:', score[0])
+print('Test accuracy:', score[1])
+
+
+
+#score = model.evaluate(x_test, y_test,verbose=1)
+text_labels = encoder.classes_
+print("text_labels:",text_labels)
+print("=======================================")
+#prediction
+prediction = model.predict(np.array([x_test[0]]))
+print("prediction:",prediction[0])
+y_pred = model.predict(x_test)
+predicted_label_index=np.argmax(y_pred, axis=1)
+
+#print predicted_label_index
+print("y_pred:",y_pred.shape)
+print("predicted_label_index:",predicted_label_index)
+
+y_test_label_index=np.argmax(y_test, axis=1)
+#print y_test_label_index
+print("y_test_label_index:",y_test_label_index)
+
+
+
+print("=======================================")
+
+
+for i in range(50):
+ prediction = model.predict(np.array([x_test[i]]))
+ predicted_label = text_labels[np.argmax(prediction[0])]
+ print(test_files_names.iloc[i])
+ print('Actual label:' + test_tags.iloc[i])
+ print("Predicted label: " + predicted_label)
+
+
+print('****************************************')
+# summarize history for accuracy
+#plt.figure()
+#plt.subplot(221)
+plt.plot(history.history['acc'])
+plt.plot(history.history['val_acc'])
+plt.title('Accuracy on Training and Validation Data')
+plt.ylabel('accuracy')
+plt.xlabel('epoch')
+plt.legend(['train_acc', 'val_acc'], loc='lower right') 
+plt.show()
+# summarize history for loss plt.plot(history.history['loss']) plt.plot(history.history['val_loss']) plt.title('model loss')
+print('****************************************')
+#plt.subplot(212) 
+plt.plot(history.history['loss'])  
+plt.plot(history.history['val_loss']) 
+plt.title('Loss on Training and Validation Data')
+plt.ylabel('loss')
+plt.xlabel('epoch')
+plt.legend(['train_loss', 'val_loss'], loc='upper left') 
+plt.show()
+
+#使用pandas 列印confusion matrix
+print("使用pandas 列印confusion matrix")
+print("alt.atheism=0,  comp.graphics=1,  comp.os.ms-windows.misc=2,  comp.sys.ibm.pc.hardware=3,  comp.sys.mac.hardware=4,  comp.windows.x=5,  misc.forsale=6,  rec.autos=7,  rec.motorcycles=8,  rec.sport.baseball=9,  rec.sport.hockey=10,  sci.crypt=11,  sci.electronics=12,  sci.med=13,  sci.space=14,  soc.religion.christian=15,  talk.politics.guns=16,  talk.politics.mideast=17,  talk.politics.misc=18,  talk.religion.misc=19")
+import pandas as pd
+y_actu_1 = pd.Series(y_test_label_index, name='Actual')
+y_pred_1 = pd.Series(predicted_label_index, name='Predicted')
+df_confusion = pd.crosstab(y_actu_1, y_pred_1)
+print(df_confusion)
