@@ -1,0 +1,229 @@
+from sklearn.naive_bayes import MultinomialNB
+from sklearn.metrics import accuracy_score,f1_score
+from sklearn.feature_extraction.text import TfidfTransformer
+from sklearn.ensemble import RandomForestClassifier
+from sklearn.linear_model import LogisticRegression
+from pprint import pprint
+import pandas
+from sklearn.feature_extraction.text import TfidfVectorizer, CountVectorizer
+from sklearn.datasets import fetch_20newsgroups
+from sklearn.decomposition import NMF, LatentDirichletAllocation
+from sklearn.metrics import confusion_matrix
+from sklearn import metrics
+
+def display_topics(model, feature_names, no_top_words):
+    for topic_idx, topic in enumerate(model.components_):
+     print ("Topic %d:" % (topic_idx))
+     print (" ".join([feature_names[i] for i in topic.argsort()[:-no_top_words - 1:-1]]))
+
+news_dataset = fetch_20newsgroups(subset='train',shuffle=True, random_state=1, remove=('headers', 'footers', 'quotes'))
+pprint(list(news_dataset.target_names))
+documents = news_dataset.data
+
+print("In the dataset ,the filenames are as follow:\n",news_dataset.filenames)
+print("In the dataset ,the target is as follow:\n",news_dataset.target)
+
+trainDF=pandas.DataFrame()
+trainDF['news']=documents
+print('trainDF的形態:',trainDF.shape)
+print('document_type:',type(documents))
+print(documents[0])
+print(trainDF)
+no_features = 2000
+
+#創建詞袋數據結構
+#將文本中的詞語轉換為詞頻矩陣
+tf_vectorizer = CountVectorizer()
+print(CountVectorizer())
+print('=================')
+#CountVectorizer是通過fit_transform函數將文本中的詞語轉換為詞頻矩陣
+term_count = tf_vectorizer.fit_transform(documents)
+print(term_count)
+#獲取詞袋中所有文本關鍵字
+word = tf_vectorizer.get_feature_names()
+#列印字典
+#print( 'word dictionary :\n\n',tf_vectorizer.vocabulary_)
+#print('----------------------------')
+#列印關健字
+#print(word)
+#print('--------------------')
+#print ('\n word dictionary (key:詞  value:索引:\n\n')
+#for key,value in tf_vectorizer.vocabulary_.items():
+#    print(key,value)
+print('**************************')
+#列印字典排序,索引從0開始
+#import operator
+#sorted_d=sorted(tf_vectorizer.vocabulary_.items(), key=operator.itemgetter(1))
+#print(sorted_d)
+print('**********************************')
+
+#查看詞頻-文本矩陣
+#print(term_count.toarray())
+
+#NMF
+print('# NMF is able to use tf-idf矩陣,tf-idf矩陣=V矩陣 & 分解V=WH')
+#TfidfTransformer是統計CountVectorizer中每個詞語的tf-idf權值
+#或tfidfVectorizer可以把CountVectorizer, TfidfTransformer合併起來，直接生成tfidf值
+tfidf_vectorizer = TfidfVectorizer(max_df=0.95, min_df=1, max_features=no_features, stop_words='english')
+
+tfidf = tfidf_vectorizer.fit_transform(documents)
+tfidf_feature_names = tfidf_vectorizer.get_feature_names()
+
+V=tfidf_vectorizer.fit_transform(documents)
+print('V-shape:',V.shape)
+print('V_toarray',V.toarray())
+print('V[0]\n',V[0])
+#for i in range(0,2000):
+ #if V[0,i]!=0:
+  #print('V({},{})={}'.format(0,i,V[0,i]))
+
+print('------------------')
+print('tfidf-shape:',tfidf.shape)
+
+print('-------------------')
+print('tfidf:')
+print(tfidf)
+print(tfidf.toarray())
+print('******************')
+#print( '\nfeature_names dic :\n\n',tfidf_vectorizer.vocabulary_)
+print('***************************************************')
+#print(tfidf_feature_names)
+n_topics = 20
+# Run NMF   分解V=WH
+#nmf = NMF(n_components=n_topics, random_state=1, alpha=.1, l1_ratio=.5, init='nndsvd').fit(tfidf)
+nmf = NMF(n_components=n_topics,solver="mu")
+print('nmf:',nmf)
+W = nmf.fit_transform(V)
+H = nmf.components_
+print('W-shape',W.shape)
+print('W matrix:',W[0])
+for i in range(0,20):
+ print('W({},{})={}'.format(0,i,W[0,i]))
+ 
+print('H-shape',H.shape)
+print('H matrix',H[:,0])
+for j in range(0,20):
+ print('H({},{})={}'.format(j,0,H[j,0]))
+print('-------------------')
+no_top_words = 10
+display_topics(nmf, tfidf_feature_names, no_top_words)
+
+print('# LDA can only use raw term counts for LDA because it is a probabilistic graphical model')
+
+# LDA can only use raw term counts for LDA because it is a probabilistic graphical model
+tf_vectorizer = CountVectorizer(min_df=2, max_features=no_features, stop_words='english')
+tf = tf_vectorizer.fit_transform(documents)
+tf_feature_names = tf_vectorizer.get_feature_names()
+print('tf:',tf)
+print('**************************************************')
+print( '\nfeature_names :\n\n',tf_vectorizer.vocabulary_)
+print('***************************************************')
+# Run LDA
+lda = LatentDirichletAllocation(n_components=n_topics, max_iter=5, learning_method='online', learning_offset=50.,random_state=0).fit(tf)
+display_topics(lda, tf_feature_names, no_top_words)
+
+# bayes 分類
+
+#進行訓練
+print('#進行訓練')
+#印出訓練集前10篇,及所屬目錄索引,tfidf矩陣前10列資料,tfidf矩陣大小
+print(news_dataset.filenames[0:10])
+print(news_dataset.target[0:10])
+print(tfidf[0:10])
+print('tfidf-shape:',tfidf.shape)
+print('**********************')
+train_samples = 11314
+# MultinomialNB實現文本分類
+#clf=MultinomialNB(alpha=0.1)
+#擬合數據
+clf = LogisticRegression(multi_class='multinomial',solver='lbfgs').fit(tfidf, news_dataset.target)
+print('clf:',clf)
+docs_new=['while Texas taxpayers might willingly eliminate tax-support',' ask any electric-guitar enthusiast which type of amp they prefer']
+X_new_counts = tf_vectorizer.transform(docs_new)
+print('X_new_counts:',X_new_counts)
+tfidf_transformer = TfidfTransformer()
+X_new_tfidf=tfidf_transformer.fit_transform(X_new_counts)
+print('X_new_tfidf:',X_new_tfidf)
+print('X_new_tfidf:',X_new_tfidf.toarray())
+print('***********************************')
+predicted = clf.predict(X_new_tfidf)
+print('predict:',predicted)
+for doc, category in zip(docs_new, predicted):
+ print('%r => %s' % (doc, news_dataset.target_names[category]))
+print('*******************')
+
+# 加载测試集
+newsgroups_test=fetch_20newsgroups(subset='test')
+documents_test=newsgroups_test.data
+print("newsgroups_test.target",newsgroups_test.target)
+# 提取測試集tfidf特徵
+docs_test_tf=tf_vectorizer.transform(documents_test)
+print('docs_test_tf:',docs_test_tf)
+docs_test_tfidf=tfidf_transformer.fit_transform(docs_test_tf)
+print('docs_test_tfidf:',docs_test_tfidf)
+
+#測試集文檔索引輸入0-7532
+news_index=217
+
+print('docs_test_tfidf[news_index]:',docs_test_tfidf[news_index])
+#對於文本測試集進行預測,看在哪一個資料夾
+predicted_test = clf.predict(docs_test_tfidf)
+predicted_train=clf.predict(tfidf)
+
+print('predict_test:',predicted_test)
+print('predict_test:',predicted_test.shape)
+#印出所預測的測試集文本編號new_index所在資料夾
+print('predicted_test_category:',predicted_test[news_index])
+print('****************************************************')
+
+print('newsgroups_test[news_index]:',news_index)
+print(documents_test[news_index])
+predicted_test_1 = clf.predict(docs_test_tfidf[news_index])
+
+print('****************************************************')
+#print('newsgroups_test:',documents_test[1])
+
+print('測試集文檔的路徑及檔名:')
+print("In the documents_test ,the filenames are as follow:\n",newsgroups_test.filenames[news_index])
+print('測試集文檔所在的目錄索引及名稱:')
+print("In the documents_test ,the target is as follow:",newsgroups_test.target[news_index])
+print("In the documents_test,the target category:",newsgroups_test.target_names[newsgroups_test.target[news_index]])
+
+print('*****************************************************')
+print('預測文檔所在目錄及索引:')
+print('predict_test_1:預測文檔目錄索引',predicted_test_1)
+text_1=['predict documents_test category 預測文檔目錄']
+for doc1, category1 in zip(text_1, predicted_test_1):
+ print('%s => %s' % (doc1, news_dataset.target_names[category1]))
+print('*****************************************************')
+#衡量分類器的好壞,印出 accuracy score,f1 score
+print("衡量分類器的好壞,印出 accuracy score")
+#print("f1_score:",f1_score(newsgroups_test.target,predicted_test,average='macro'))
+
+print("train accuracy:",accuracy_score(news_dataset.target,predicted_train))
+print("test accuracy:",accuracy_score(newsgroups_test.target,predicted_test))
+
+print("預測文本正確的數目:",accuracy_score(newsgroups_test.target,predicted_test,normalize=False))
+#測試集文本所在資料夾索引,及預測文本所在資料夾索引
+print("newsgroups_test.target(文本所在資料夾索引):",newsgroups_test.target)
+print("predicted_test(預測文本所在資料夾索引):",predicted_test)
+print("newsgroups_test.target.shape:",newsgroups_test.target.shape)
+print("predicted_test.shape:",predicted_test.shape)
+#confusion_matrix
+colnames=[0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19]
+#colnames=["alt.atheism","comp.graphics","comp.os.ms-windows.misc","comp.sys.ibm.pc.hardware","comp.sys.mac.hardware","comp.windows.x","misc.forsale","rec.autos","rec.motorcycles","rec.sport.baseball","rec.sport.hockey","sci.crypt","sci.electronics","sci.med","sci.space","soc.religion.christian","talk.politics.guns","talk.politics.mideast","talk.politics.misc","talk.religion.misc"]
+print('confusion_matrix:')
+print(confusion_matrix(newsgroups_test.target, predicted_test,labels=colnames))
+
+#使用pandas 列印confusion matrix
+print("使用pandas 列印confusion matrix")
+print("alt.atheism=0,  comp.graphics=1,  comp.os.ms-windows.misc=2,  comp.sys.ibm.pc.hardware=3,  comp.sys.mac.hardware=4,  comp.windows.x=5,  misc.forsale=6,  rec.autos=7,  rec.motorcycles=8,  rec.sport.baseball=9,  rec.sport.hockey=10,  sci.crypt=11,  sci.electronics=12,  sci.med=13,  sci.space=14,  soc.religion.christian=15,  talk.politics.guns=16,  talk.politics.mideast=17,  talk.politics.misc=18,  talk.religion.misc=19")
+import pandas as pd
+y_actu = pd.Series(newsgroups_test.target, name='Actual')
+y_pred = pd.Series(predicted_test, name='Predicted')
+df_confusion = pd.crosstab(y_actu, y_pred)
+print(df_confusion)
+
+print('*************************************************************************')
+print(metrics.classification_report(newsgroups_test.target, predicted_test, 
+                              target_names=newsgroups_test.target_names))
